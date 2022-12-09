@@ -114,6 +114,41 @@ export async function createServer(
       res,
       app.get("use-online-tokens")
     );
+    
+    // const queryString = `{shop 
+    //   {
+    //     search(
+    //       first: 10,
+    //       query: "",
+    //       types: ONLINE_STORE_ARTICLE
+    //     ) 
+    //     {
+    //       edges {
+    //         node {
+    //           url
+    //           title
+    //           reference {
+    //             id
+    //           }
+    //         }
+    //       }
+    //     }
+    //   }
+    // }`
+    // const client = new Shopify.Clients.Graphql(
+    //   session.shop,
+    //   session.accessToken
+    // );
+    // const response = await client.query({data: queryString});
+    // console.log('---', response, '---'); 
+
+
+    // const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
+    // const data = await client.get({
+    //   path: 'blogs'
+    // }); 
+    // console.log(data);
+
     const { Product } = await import(
       `@shopify/shopify-api/dist/rest-resources/${Shopify.Context.API_VERSION}/index.js`
     );
@@ -140,6 +175,29 @@ export async function createServer(
     }
     res.status(status).send({ success: status === 200, error });
   });
+
+  /**
+   * Blog API
+   */
+  app.get('/api/blogs', async (req, res) => {
+    const session = await Shopify.Utils.loadCurrentSession(
+      req,
+      res,
+      app.get("use-online-tokens")
+    );
+    
+    
+    // await Shopify.
+    // const Data = await import(
+    //   `@shopify/shopify-api/dist/rest-resources/${Shopify.Context.API_VERSION}/index.js`
+    // );
+
+    // const countData = await Product.count({ session });
+    // res.status(200).send(countData);
+  })
+  /**
+   * End Blog API
+   */
 
   // All endpoints after this point will have access to a request.body
   // attribute, as a result of the express.json() middleware
