@@ -144,10 +144,10 @@ export async function createServer(
 
 
     // const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
-    // const data = await client.get({
+    // const { body } = await client.get({
     //   path: 'blogs'
     // }); 
-    // console.log(data);
+    // console.log(body.blogs);
 
     const { Product } = await import(
       `@shopify/shopify-api/dist/rest-resources/${Shopify.Context.API_VERSION}/index.js`
@@ -186,15 +186,29 @@ export async function createServer(
       app.get("use-online-tokens")
     );
     
-    
-    // await Shopify.
-    // const Data = await import(
-    //   `@shopify/shopify-api/dist/rest-resources/${Shopify.Context.API_VERSION}/index.js`
-    // );
+    const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
+    const result = await client.get({
+      path: 'blogs'
+    }); 
 
-    // const countData = await Product.count({ session });
-    // res.status(200).send(countData);
+    res.status(200).send(result);
   })
+
+  app.get('/api/blog/:blogid/articles', async (req, res) => {
+    const session = await Shopify.Utils.loadCurrentSession(
+      req,
+      res,
+      app.get("use-online-tokens")
+    );
+
+    const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
+    const result = await client.get({
+      path: `blogs/${ req.params.blogid }/articles`
+    }); 
+
+    res.status(200).send(result);
+  })
+
   /**
    * End Blog API
    */
