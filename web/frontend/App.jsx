@@ -24,6 +24,10 @@ export default function App() {
                   label: "Page name",
                   destination: "/pagename",
                 },
+                {
+                  label: "Blog Posts",
+                  destination: "/blogposts",
+                },
               ]}
             />
             <Routes pages={pages} />
