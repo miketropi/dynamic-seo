@@ -1,15 +1,14 @@
-import { Page, Layout } from '@shopify/polaris';
+import { Page, Layout } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { PostList } from "../components"
+import { PostList } from "../components";
 
-export default function Blogposts() {
+export default function BlogPosts() {
   return <Page>
     <TitleBar 
       title="Blog Posts"
     />
     <Layout>
       <Layout.Section>
-        Hello this is a test...!
         <PostList />
       </Layout.Section>
     </Layout>  

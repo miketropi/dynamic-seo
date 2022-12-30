@@ -23,7 +23,7 @@ const PROD_INDEX_PATH = `${process.cwd()}/frontend/dist/`;
 
 const DB_PATH = `${process.cwd()}/database.sqlite`;
 
-Shopify.Context.initialize({
+const shopify = Shopify.Context.initialize({
   API_KEY: process.env.SHOPIFY_API_KEY,
   API_SECRET_KEY: process.env.SHOPIFY_API_SECRET,
   SCOPES: process.env.SCOPES.split(","),
@@ -195,19 +195,24 @@ export async function createServer(
   })
 
   app.get('/api/blog/:blogid/articles', async (req, res) => {
+    // res.status(200).send(req.params);return;
+    const blogID = req?.params?.blogid;
+    if(! blogID) return;
+
     const session = await Shopify.Utils.loadCurrentSession(
       req,
       res,
       app.get("use-online-tokens")
     );
+    
 
     const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
     const result = await client.get({
-      path: `blogs/${ req.params.blogid }/articles`
+      path: `blogs/${ parseInt(req?.params?.blogid) }/articles`
     }); 
-
+    
     res.status(200).send(result);
-  })
+  }) 
 
   /**
    * End Blog API
