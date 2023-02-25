@@ -12,8 +12,10 @@
     "deploy": "shopify app deploy"
   },
   "dependencies": {
-    "@shopify/app": "3.25.0",
-    "@shopify/cli": "3.25.0"
+    "@shopify/app": "^3.23.0",
+    "@shopify/cli": "^3.23.0",
+    "sqlite": "^4.1.2",
+    "sqlite3": "^5.1.4"
   },
   "author": "mike"
 }

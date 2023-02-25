@@ -4,8 +4,8 @@ import { readFileSync } from "fs";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { Shopify, LATEST_API_VERSION } from "@shopify/shopify-api";
-
 import applyAuthMiddleware from "./middleware/auth.js";
+import openDb from "./middleware/connect.js";
 import verifyRequest from "./middleware/verify-request.js";
 import { setupGDPRWebHooks } from "./gdpr.js";
 import productCreator from "./helpers/product-creator.js";
@@ -24,17 +24,17 @@ const PROD_INDEX_PATH = `${process.cwd()}/frontend/dist/`;
 const DB_PATH = `${process.cwd()}/database.sqlite`;
 
 const shopify = Shopify.Context.initialize({
-  API_KEY: process.env.SHOPIFY_API_KEY,
-  API_SECRET_KEY: process.env.SHOPIFY_API_SECRET,
-  SCOPES: process.env.SCOPES.split(","),
-  HOST_NAME: process.env.HOST.replace(/https?:\/\//, ""),
-  HOST_SCHEME: process.env.HOST.split("://")[0],
-  API_VERSION: LATEST_API_VERSION,
-  IS_EMBEDDED_APP: true,
-  // This should be replaced with your preferred storage strategy
-  // See note below regarding using CustomSessionStorage with this template.
-  SESSION_STORAGE: new Shopify.Session.SQLiteSessionStorage(DB_PATH),
-  ...(process.env.SHOP_CUSTOM_DOMAIN && {CUSTOM_SHOP_DOMAINS: [process.env.SHOP_CUSTOM_DOMAIN]}),
+    API_KEY: process.env.SHOPIFY_API_KEY,
+    API_SECRET_KEY: process.env.SHOPIFY_API_SECRET,
+    SCOPES: process.env.SCOPES.split(","),
+    HOST_NAME: process.env.HOST.replace(/https?:\/\//, ""),
+    HOST_SCHEME: process.env.HOST.split("://")[0],
+    API_VERSION: LATEST_API_VERSION,
+    IS_EMBEDDED_APP: true,
+    // This should be replaced with your preferred storage strategy
+    // See note below regarding using CustomSessionStorage with this template.
+    SESSION_STORAGE: new Shopify.Session.SQLiteSessionStorage(DB_PATH),
+    ...(process.env.SHOP_CUSTOM_DOMAIN && { CUSTOM_SHOP_DOMAINS: [process.env.SHOP_CUSTOM_DOMAIN] }),
 });
 
 // NOTE: If you choose to implement your own storage strategy using
@@ -44,21 +44,21 @@ const shopify = Shopify.Context.initialize({
 // work properly.
 
 Shopify.Webhooks.Registry.addHandler("APP_UNINSTALLED", {
-  path: "/api/webhooks",
-  webhookHandler: async (_topic, shop, _body) => {
-    await AppInstallations.delete(shop);
-  },
+    path: "/api/webhooks",
+    webhookHandler: async(_topic, shop, _body) => {
+        await AppInstallations.delete(shop);
+    },
 });
 
 // The transactions with Shopify will always be marked as test transactions, unless NODE_ENV is production.
 // See the ensureBilling helper to learn more about billing in this template.
 const BILLING_SETTINGS = {
-  required: false,
-  // This is an example configuration that would do a one-time charge for $5 (only USD is currently supported)
-  // chargeName: "My Shopify One-Time Charge",
-  // amount: 5.0,
-  // currencyCode: "USD",
-  // interval: BillingInterval.OneTime,
+    required: false,
+    // This is an example configuration that would do a one-time charge for $5 (only USD is currently supported)
+    // chargeName: "My Shopify One-Time Charge",
+    // amount: 5.0,
+    // currencyCode: "USD",
+    // interval: BillingInterval.OneTime,
 };
 
 // This sets up the mandatory GDPR webhooks. You’ll need to fill in the endpoint
@@ -71,214 +71,250 @@ setupGDPRWebHooks("/api/webhooks");
 
 // export for test use only
 export async function createServer(
-  root = process.cwd(),
-  isProd = process.env.NODE_ENV === "production",
-  billingSettings = BILLING_SETTINGS
+    root = process.cwd(),
+    isProd = process.env.NODE_ENV === "production",
+    billingSettings = BILLING_SETTINGS
 ) {
-  const app = express();
+    const app = express();
 
-  app.set("use-online-tokens", USE_ONLINE_TOKENS);
-  app.use(cookieParser(Shopify.Context.API_SECRET_KEY));
+    app.set("use-online-tokens", USE_ONLINE_TOKENS);
+    app.use(cookieParser(Shopify.Context.API_SECRET_KEY));
 
-  applyAuthMiddleware(app, {
-    billing: billingSettings,
-  });
+    applyAuthMiddleware(app, {
+        billing: billingSettings,
+    });
 
-  // Do not call app.use(express.json()) before processing webhooks with
-  // Shopify.Webhooks.Registry.process().
-  // See https://github.com/Shopify/shopify-api-node/blob/main/docs/usage/webhooks.md#note-regarding-use-of-body-parsers
-  // for more details.
-  app.post("/api/webhooks", async (req, res) => {
-    try {
-      await Shopify.Webhooks.Registry.process(req, res);
-      console.log(`Webhook processed, returned status code 200`);
-    } catch (e) {
-      console.log(`Failed to process webhook: ${e.message}`);
-      if (!res.headersSent) {
-        res.status(500).send(e.message);
-      }
-    }
-  });
+    // Do not call app.use(express.json()) before processing webhooks with
+    // Shopify.Webhooks.Registry.process().
+    // See https://github.com/Shopify/shopify-api-node/blob/main/docs/usage/webhooks.md#note-regarding-use-of-body-parsers
+    // for more details.
+    app.post("/api/webhooks", async(req, res) => {
+        try {
+            await Shopify.Webhooks.Registry.process(req, res);
+            console.log(`Webhook processed, returned status code 200`);
+        } catch (e) {
+            console.log(`Failed to process webhook: ${e.message}`);
+            if (!res.headersSent) {
+                res.status(500).send(e.message);
+            }
+        }
+    });
 
-  // All endpoints after this point will require an active session
-  app.use(
-    "/api/*",
-    verifyRequest(app, {
-      billing: billingSettings,
+    // All endpoints after this point will require an active session
+    app.use(
+        "/api/*",
+        verifyRequest(app, {
+            billing: billingSettings,
+        })
+    );
+
+    app.get("/api/products/count", async(req, res) => {
+        const session = await Shopify.Utils.loadCurrentSession(
+            req,
+            res,
+            app.get("use-online-tokens")
+        );
+
+        // const queryString = `{shop 
+        //   {
+        //     search(
+        //       first: 10,
+        //       query: "",
+        //       types: ONLINE_STORE_ARTICLE
+        //     ) 
+        //     {
+        //       edges {
+        //         node {
+        //           url
+        //           title
+        //           reference {
+        //             id
+        //           }
+        //         }
+        //       }
+        //     }
+        //   }
+        // }`
+        // const client = new Shopify.Clients.Graphql(
+        //   session.shop,
+        //   session.accessToken
+        // );
+        // const response = await client.query({data: queryString});
+        // console.log('---', response, '---'); 
+
+
+        // const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
+        // const { body } = await client.get({
+        //   path: 'blogs'
+        // }); 
+        // console.log(body.blogs);
+
+        const { Product } = await
+        import (
+            `@shopify/shopify-api/dist/rest-resources/${Shopify.Context.API_VERSION}/index.js`
+        );
+
+        const countData = await Product.count({ session });
+        res.status(200).send(countData);
+    });
+
+    app.get("/api/products/create", async(req, res) => {
+        const session = await Shopify.Utils.loadCurrentSession(
+            req,
+            res,
+            app.get("use-online-tokens")
+        );
+        let status = 200;
+        let error = null;
+
+        try {
+            await productCreator(session);
+        } catch (e) {
+            console.log(`Failed to process products/create: ${e.message}`);
+            status = 500;
+            error = e.message;
+        }
+        res.status(status).send({ success: status === 200, error });
+    });
+
+    // Shortcode api
+    app.post("/api/shortcodes/save", async(req, res) => {
+        const session = await Shopify.Utils.loadCurrentSession(
+            req,
+            res,
+            app.get("use-online-tokens")
+        );
+        let status = 200;
+        let error = null;
+        console.log(res);
+        try {
+            // await productCreator(session);
+            const db = await openDb();
+            const shop_exist = await db.get('SELECT id FROM shopify_shortcodes WHERE shop = :shop', {
+                ':shop': session.shop
+            }).then((shop_exist) => {
+                if (shop_exist === undefined) {
+                    console.log(shop_exist);
+                    return db.run('INSERT INTO shopify_shortcodes (shop,data,date_create) VALUES ( ?, ?, ?)', session.shop, "hello world", Date().toLocaleString())
+                } else {
+                    return db.run('UPDATE shopify_shortcodes SET data = ?, date_update = ? WHERE shop = ?', "hello world", Date().toLocaleString(), session.shop)
+                }
+            }).then((result) => {
+                console.log(result);
+            })
+        } catch (e) {
+            console.log(`Failed to process api/shortcodes/save: ${e.message}`);
+            status = 500;
+            error = e.message;
+        }
+        res.status(status).send({ success: status === 200, error });
+    });
+
+    /**
+     * Blog API
+     */
+    app.get('/api/blogs', async(req, res) => {
+        const session = await Shopify.Utils.loadCurrentSession(
+            req,
+            res,
+            app.get("use-online-tokens")
+        );
+
+        const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
+        const result = await client.get({
+            path: 'blogs'
+        });
+
+        res.status(200).send(result);
     })
-  );
 
-  app.get("/api/products/count", async (req, res) => {
-    const session = await Shopify.Utils.loadCurrentSession(
-      req,
-      res,
-      app.get("use-online-tokens")
-    );
-    
-    // const queryString = `{shop 
-    //   {
-    //     search(
-    //       first: 10,
-    //       query: "",
-    //       types: ONLINE_STORE_ARTICLE
-    //     ) 
-    //     {
-    //       edges {
-    //         node {
-    //           url
-    //           title
-    //           reference {
-    //             id
-    //           }
-    //         }
-    //       }
-    //     }
-    //   }
-    // }`
-    // const client = new Shopify.Clients.Graphql(
-    //   session.shop,
-    //   session.accessToken
-    // );
-    // const response = await client.query({data: queryString});
-    // console.log('---', response, '---'); 
+    // app.get('/api/blog/:blogid/articles', async(req, res) => {
+    //     // res.status(200).send(req.params);return;
+    //     const blogID = req ? .params ? .blogid;
+    //     if (!blogID) return;
+
+    //     const session = await Shopify.Utils.loadCurrentSession(
+    //         req,
+    //         res,
+    //         app.get("use-online-tokens")
+    //     );
 
 
-    // const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
-    // const { body } = await client.get({
-    //   path: 'blogs'
-    // }); 
-    // console.log(body.blogs);
+    //     const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
+    //     const result = await client.get({
+    //         path: `blogs/${ parseInt(req?.params?.blogid) }/articles`
+    //     });
 
-    const { Product } = await import(
-      `@shopify/shopify-api/dist/rest-resources/${Shopify.Context.API_VERSION}/index.js`
-    );
+    //     res.status(200).send(result);
+    // })
 
-    const countData = await Product.count({ session });
-    res.status(200).send(countData);
-  });
+    /**
+     * End Blog API
+     */
 
-  app.get("/api/products/create", async (req, res) => {
-    const session = await Shopify.Utils.loadCurrentSession(
-      req,
-      res,
-      app.get("use-online-tokens")
-    );
-    let status = 200;
-    let error = null;
+    // All endpoints after this point will have access to a request.body
+    // attribute, as a result of the express.json() middleware
+    app.use(express.json());
 
-    try {
-      await productCreator(session);
-    } catch (e) {
-      console.log(`Failed to process products/create: ${e.message}`);
-      status = 500;
-      error = e.message;
-    }
-    res.status(status).send({ success: status === 200, error });
-  });
-
-  /**
-   * Blog API
-   */
-  app.get('/api/blogs', async (req, res) => {
-    const session = await Shopify.Utils.loadCurrentSession(
-      req,
-      res,
-      app.get("use-online-tokens")
-    );
-    
-    const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
-    const result = await client.get({
-      path: 'blogs'
-    }); 
-
-    res.status(200).send(result);
-  })
-
-  app.get('/api/blog/:blogid/articles', async (req, res) => {
-    // res.status(200).send(req.params);return;
-    const blogID = req?.params?.blogid;
-    if(! blogID) return;
-
-    const session = await Shopify.Utils.loadCurrentSession(
-      req,
-      res,
-      app.get("use-online-tokens")
-    );
-    
-
-    const client = new Shopify.Clients.Rest(session.shop, session.accessToken);
-    const result = await client.get({
-      path: `blogs/${ parseInt(req?.params?.blogid) }/articles`
-    }); 
-    
-    res.status(200).send(result);
-  }) 
-
-  /**
-   * End Blog API
-   */
-
-  // All endpoints after this point will have access to a request.body
-  // attribute, as a result of the express.json() middleware
-  app.use(express.json());
-
-  app.use((req, res, next) => {
-    const shop = Shopify.Utils.sanitizeShop(req.query.shop);
-    if (Shopify.Context.IS_EMBEDDED_APP && shop) {
-      res.setHeader(
-        "Content-Security-Policy",
-        `frame-ancestors https://${encodeURIComponent(
+    app.use((req, res, next) => {
+        const shop = Shopify.Utils.sanitizeShop(req.query.shop);
+        if (Shopify.Context.IS_EMBEDDED_APP && shop) {
+            res.setHeader(
+                "Content-Security-Policy",
+                `frame-ancestors https://${encodeURIComponent(
           shop
         )} https://admin.shopify.com;`
-      );
-    } else {
-      res.setHeader("Content-Security-Policy", `frame-ancestors 'none';`);
-    }
-    next();
-  });
+            );
+        } else {
+            res.setHeader("Content-Security-Policy", `frame-ancestors 'none';`);
+        }
+        next();
+    });
 
-  if (isProd) {
-    const compression = await import("compression").then(
-      ({ default: fn }) => fn
-    );
-    const serveStatic = await import("serve-static").then(
-      ({ default: fn }) => fn
-    );
-    app.use(compression());
-    app.use(serveStatic(PROD_INDEX_PATH, { index: false }));
-  }
-
-  app.use("/*", async (req, res, next) => {
-    if (typeof req.query.shop !== "string") {
-      res.status(500);
-      return res.send("No shop provided");
+    if (isProd) {
+        const compression = await
+        import ("compression").then(
+            ({ default: fn }) => fn
+        );
+        const serveStatic = await
+        import ("serve-static").then(
+            ({ default: fn }) => fn
+        );
+        app.use(compression());
+        app.use(serveStatic(PROD_INDEX_PATH, { index: false }));
     }
 
-    const shop = Shopify.Utils.sanitizeShop(req.query.shop);
-    const appInstalled = await AppInstallations.includes(shop);
+    app.use("/*", async(req, res, next) => {
+        if (typeof req.query.shop !== "string") {
+            res.status(500);
+            return res.send("No shop provided");
+        }
 
-    if (!appInstalled && !req.originalUrl.match(/^\/exitiframe/i)) {
-      return redirectToAuth(req, res, app);
-    }
+        const shop = Shopify.Utils.sanitizeShop(req.query.shop);
+        const appInstalled = await AppInstallations.includes(shop);
 
-    if (Shopify.Context.IS_EMBEDDED_APP && req.query.embedded !== "1") {
-      const embeddedUrl = Shopify.Utils.getEmbeddedAppUrl(req);
+        if (!appInstalled && !req.originalUrl.match(/^\/exitiframe/i)) {
+            return redirectToAuth(req, res, app);
+        }
 
-      return res.redirect(embeddedUrl + req.path);
-    }
+        if (Shopify.Context.IS_EMBEDDED_APP && req.query.embedded !== "1") {
+            const embeddedUrl = Shopify.Utils.getEmbeddedAppUrl(req);
 
-    const htmlFile = join(
-      isProd ? PROD_INDEX_PATH : DEV_INDEX_PATH,
-      "index.html"
-    );
+            return res.redirect(embeddedUrl + req.path);
+        }
 
-    return res
-      .status(200)
-      .set("Content-Type", "text/html")
-      .send(readFileSync(htmlFile));
-  });
+        const htmlFile = join(
+            isProd ? PROD_INDEX_PATH : DEV_INDEX_PATH,
+            "index.html"
+        );
 
-  return { app };
+        return res
+            .status(200)
+            .set("Content-Type", "text/html")
+            .send(readFileSync(htmlFile));
+    });
+
+    return { app };
 }
 
 createServer().then(({ app }) => app.listen(PORT));
